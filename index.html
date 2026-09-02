@@ -7,29 +7,36 @@
         body { margin: 0; overflow: hidden; background-color: #222; color: white; font-family: sans-serif; }
         #ui { position: absolute; top: 20px; left: 20px; z-index: 100; text-shadow: 2px 2px 4px #000; }
         #gameOver { display: none; color: #ff4500; font-size: 3em; font-weight: bold; margin-top: 20px; }
-        h2 { margin: 0 0 10px 0; color: #ffaa00; }
+        h2 { margin: 0 0 5px 0; color: #ffaa00; }
+        .instructions { font-size: 0.9em; margin: 5px 0; color: #ddd; }
+        #powerupText { color: #00ffff; font-weight: bold; display: none; font-size: 1.5em; margin-top: 10px; }
     </style>
 </head>
 <body>
     <div id="ui">
         <h2>3D Fire Escape</h2>
-        <p>Use <b>Left / Right Arrows</b> or <b>A / D</b> to dodge obstacles.</p>
-        <p>Hitting an obstacle slows you down. Don't let the fire wall catch you!</p>
+        <p class="instructions"><b>Left / Right (A/D)</b> to dodge. <b>Space / Up (W)</b> to jump.</p>
+        <p class="instructions">Grab <b>Gold Rings</b> for points. <b>Blue Crystals</b> push the fire back!</p>
         <h3 id="score">Score: 0</h3>
+        <div id="powerupText">FIRE PUSHED BACK!</div>
         <div id="gameOver">GAME OVER!<br><span style="font-size: 0.5em; color: white;">Press R to Restart</span></div>
     </div>
     
-    <!-- Load Three.js -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script>
         const scoreElement = document.getElementById('score');
         const gameOverElement = document.getElementById('gameOver');
+        const powerupTextElement = document.getElementById('powerupText');
 
         let scene, camera, renderer;
         let player, fireWall, floor;
         let obstacles = [];
+        let coins = [];
+        let powerups = [];
         
         let score = 0;
+        let baseScore = 0; // Score from distance
+        let bonusScore = 0; // Score from coins
         let isGameOver = false;
         
         // Speeds
@@ -37,24 +44,58 @@
         let playerSpeed = BASE_SPEED;
         let fireSpeed = BASE_SPEED; 
         
+        // Jumping Physics
+        let playerVelocityY = 0;
+        let isJumping = false;
+        const GRAVITY = -0.015;
+        const JUMP_FORCE = 0.35;
+        
         let keys = { left: false, right: false };
 
+        // Helper to create a better player model
+        function createPlayerModel() {
+            let group = new THREE.Group();
+            
+            // Head
+            let headGeo = new THREE.SphereGeometry(0.4, 16, 16);
+            let headMat = new THREE.MeshLambertMaterial({color: 0xffccaa});
+            let head = new THREE.Mesh(headGeo, headMat);
+            head.position.y = 0.8;
+            group.add(head);
+            
+            // Body
+            let bodyGeo = new THREE.BoxGeometry(0.6, 0.8, 0.4);
+            let bodyMat = new THREE.MeshLambertMaterial({color: 0x4169e1}); // Blue shirt
+            let body = new THREE.Mesh(bodyGeo, bodyMat);
+            body.position.y = 0.1;
+            group.add(body);
+            
+            // Cape (flutters in wind)
+            let capeGeo = new THREE.PlaneGeometry(0.5, 0.8);
+            let capeMat = new THREE.MeshBasicMaterial({color: 0xff0000, side: THREE.DoubleSide});
+            let cape = new THREE.Mesh(capeGeo, capeMat);
+            cape.position.set(0, 0.2, 0.25);
+            cape.rotation.x = -0.3;
+            cape.name = "cape";
+            group.add(cape);
+            
+            group.position.y = 0.5; // Default ground level
+            return group;
+        }
+
         function init() {
-            // Setup scene
             scene = new THREE.Scene();
             scene.fog = new THREE.Fog(0x221111, 20, 100);
 
-            // Setup camera
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
 
-            // Setup renderer
             renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setClearColor(0x221111);
             document.body.appendChild(renderer.domElement);
 
             // Lighting
-            const ambientLight = new THREE.AmbientLight(0x404040); // soft white light
+            const ambientLight = new THREE.AmbientLight(0x606060); 
             scene.add(ambientLight);
             const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
             directionalLight.position.set(0, 20, 10);
@@ -62,70 +103,105 @@
             
             // Fire Light
             const fireLight = new THREE.PointLight(0xff4500, 2, 50);
+            fireLight.name = "fireLight";
             scene.add(fireLight);
 
-            // Floor
+            // Grid Floor for better 3D perspective
             const floorGeo = new THREE.PlaneGeometry(30, 10000);
-            const floorMat = new THREE.MeshLambertMaterial({ color: 0x333333 });
+            const floorMat = new THREE.MeshLambertMaterial({ color: 0x222222 });
             floor = new THREE.Mesh(floorGeo, floorMat);
             floor.rotation.x = -Math.PI / 2;
-            floor.position.y = 0;
             scene.add(floor);
+            
+            const gridHelper = new THREE.GridHelper(30, 30, 0x444444, 0x444444);
+            gridHelper.position.y = 0.01; // Slightly above floor
+            scene.add(gridHelper);
 
-            // Player (Blue Boy)
-            const playerGeo = new THREE.BoxGeometry(1, 1, 1);
-            const playerMat = new THREE.MeshLambertMaterial({ color: 0x4169e1 });
-            player = new THREE.Mesh(playerGeo, playerMat);
-            player.position.set(0, 0.5, 0);
+            // Player
+            player = createPlayerModel();
             scene.add(player);
 
-            // Fire Wall (Behind player)
+            // Fire Wall
             const fireGeo = new THREE.BoxGeometry(30, 10, 5);
+            // Add wireframe over it for cool effect
             const fireMat = new THREE.MeshBasicMaterial({ color: 0xff4500 });
             fireWall = new THREE.Mesh(fireGeo, fireMat);
-            fireWall.position.set(0, 5, 15); // Starts 15 units behind
+            
+            const fireWireframe = new THREE.Mesh(fireGeo, new THREE.MeshBasicMaterial({color: 0xffff00, wireframe: true}));
+            fireWall.add(fireWireframe);
+            
+            fireWall.position.set(0, 5, 15);
             scene.add(fireWall);
             
             fireLight.position.copy(fireWall.position);
 
-            // Initial obstacles
+            // Initial spawns
             for(let i=0; i<20; i++) {
-                spawnObstacle(-20 - i*10);
+                spawnEntity(-20 - i*15);
             }
 
-            // Window resize handler
             window.addEventListener('resize', onWindowResize, false);
+        }
+
+        function clearEntities(arr) {
+            for(let ent of arr) {
+                scene.remove(ent);
+            }
+            arr.length = 0;
         }
 
         function resetGame() {
             player.position.set(0, 0.5, 0);
             fireWall.position.set(0, 5, 15);
+            playerVelocityY = 0;
+            isJumping = false;
             
-            // Clear obstacles
-            for(let obs of obstacles) {
-                scene.remove(obs);
-            }
-            obstacles = [];
+            clearEntities(obstacles);
+            clearEntities(coins);
+            clearEntities(powerups);
             
             for(let i=0; i<20; i++) {
-                spawnObstacle(-20 - i*10);
+                spawnEntity(-20 - i*15);
             }
             
+            baseScore = 0;
+            bonusScore = 0;
             score = 0;
             isGameOver = false;
             playerSpeed = BASE_SPEED;
             gameOverElement.style.display = 'none';
         }
 
-        function spawnObstacle(zPos) {
-            const size = 1 + Math.random() * 2;
-            const geo = new THREE.BoxGeometry(size, size, size);
-            const mat = new THREE.MeshLambertMaterial({ color: 0x888888 });
-            const obs = new THREE.Mesh(geo, mat);
-            // Random X between -10 and 10
-            obs.position.set((Math.random() - 0.5) * 20, size/2, zPos);
-            scene.add(obs);
-            obstacles.push(obs);
+        function spawnEntity(zPos) {
+            const rand = Math.random();
+            const xPos = (Math.random() - 0.5) * 20;
+
+            if (rand < 0.7) {
+                // Obstacle (Boxes)
+                const size = 1 + Math.random();
+                const geo = new THREE.BoxGeometry(size, size, size);
+                const mat = new THREE.MeshStandardMaterial({ color: 0x555555, roughness: 0.8 });
+                const obs = new THREE.Mesh(geo, mat);
+                obs.position.set(xPos, size/2, zPos);
+                scene.add(obs);
+                obstacles.push(obs);
+            } else if (rand < 0.95) {
+                // Coin (Golden Ring)
+                const geo = new THREE.TorusGeometry(0.5, 0.15, 8, 16);
+                const mat = new THREE.MeshStandardMaterial({ color: 0xffd700, metalness: 1, roughness: 0.2 });
+                const coin = new THREE.Mesh(geo, mat);
+                coin.position.set(xPos, 1, zPos);
+                scene.add(coin);
+                coins.push(coin);
+            } else {
+                // Powerup (Blue Crystal)
+                const geo = new THREE.IcosahedronGeometry(0.5);
+                const mat = new THREE.MeshStandardMaterial({ color: 0x00ffff, emissive: 0x005555 });
+                const pu = new THREE.Mesh(geo, mat);
+                pu.position.set(xPos, 1, zPos);
+                scene.add(pu);
+                powerups.push(pu);
+            }
         }
 
         function onWindowResize() {
@@ -134,10 +210,24 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
         }
 
+        function showPowerupText() {
+            powerupTextElement.style.display = 'block';
+            setTimeout(() => {
+                powerupTextElement.style.display = 'none';
+            }, 1500);
+        }
+
         // Input handling
         window.addEventListener('keydown', (e) => {
             if (e.key === 'a' || e.key === 'ArrowLeft') keys.left = true;
             if (e.key === 'd' || e.key === 'ArrowRight') keys.right = true;
+            
+            // Jump
+            if ((e.key === ' ' || e.key === 'ArrowUp' || e.key === 'w') && !isJumping && !isGameOver) {
+                playerVelocityY = JUMP_FORCE;
+                isJumping = true;
+            }
+
             if ((e.key === 'r' || e.key === 'R') && isGameOver) resetGame();
         });
 
@@ -154,85 +244,131 @@
                 return;
             }
 
-            // Move player forward (-Z direction)
+            // --- Movement & Physics ---
             player.position.z -= playerSpeed;
-            
-            // Speed slowly increases
-            playerSpeed += 0.0001;
-            fireSpeed = playerSpeed; // Fire keeps pace
+            playerSpeed += 0.0001; // Accelerate over time
+            fireSpeed = playerSpeed;
 
-            // Move fire wall
-            fireWall.position.z -= fireSpeed;
+            // Lateral Movement
+            if (keys.left) player.position.x -= 0.3;
+            if (keys.right) player.position.x += 0.3;
+            player.position.x = Math.max(-14, Math.min(14, player.position.x));
+
+            // Jumping Physics
+            playerVelocityY += GRAVITY;
+            player.position.y += playerVelocityY;
             
-            // Light follows fire wall
+            if (player.position.y <= 0.5) {
+                player.position.y = 0.5;
+                playerVelocityY = 0;
+                isJumping = false;
+            }
+
+            // Animate Cape
+            const cape = player.getObjectByName("cape");
+            if (cape) cape.rotation.x = -0.3 + Math.sin(Date.now() * 0.02) * 0.2;
+
+            // Move Fire
+            fireWall.position.z -= fireSpeed;
+            scene.getObjectByName("fireLight").position.z = fireWall.position.z - 3;
+            
+            // Wobble Fire Wall
+            fireWall.scale.y = 1 + Math.sin(Date.now() * 0.01) * 0.1;
+            fireWall.scale.x = 1 + Math.cos(Date.now() * 0.01) * 0.05;
+
+            // Camera Tracking
+            camera.position.x = player.position.x * 0.5;
+            camera.position.y = 4 + (player.position.y - 0.5) * 0.5; // Slight up/down tracking
+            camera.position.z = player.position.z + 8;
+            camera.lookAt(player.position.x, 1, player.position.z - 10);
+            
+            // Move Grid Helper to simulate endless floor (keeps it centered)
             scene.children.forEach(c => {
-                if(c.type === "PointLight") {
-                    c.position.z = fireWall.position.z - 3;
+                if(c.type === "GridHelper") {
+                    c.position.z = player.position.z;
                 }
             });
 
-            // Player lateral movement
-            if (keys.left) player.position.x -= 0.3;
-            if (keys.right) player.position.x += 0.3;
-            
-            // Clamp player X to floor bounds
-            player.position.x = Math.max(-14, Math.min(14, player.position.x));
-
-            // Camera follows player
-            camera.position.x = player.position.x * 0.5; // Slight look-ahead pan
-            camera.position.y = 4;
-            camera.position.z = player.position.z + 8;
-            camera.lookAt(player.position.x, 0, player.position.z - 5);
-
-            // Collision Detection
+            // --- Collision Detection ---
             const playerBox = new THREE.Box3().setFromObject(player);
-            // Shrink player hitbox slightly for forgiveness
-            playerBox.expandByScalar(-0.2); 
-            
+            playerBox.expandByScalar(-0.15); // Forgiveness buffer
+
+            // 1. Obstacles
             for (let i = obstacles.length - 1; i >= 0; i--) {
                 let obs = obstacles[i];
                 let obsBox = new THREE.Box3().setFromObject(obs);
                 
                 if (playerBox.intersectsBox(obsBox)) {
-                    // Hit obstacle! Bounce player back towards fire
+                    // Hit obstacle! Bounce player back
                     player.position.z += 3; 
-                    
-                    // Remove obstacle so we don't get stuck in it
                     scene.remove(obs);
                     obstacles.splice(i, 1);
-                    
-                    // Flash player red briefly (optional polish, skip for now)
+                } else if (obs.position.z > fireWall.position.z) {
+                    scene.remove(obs);
+                    obstacles.splice(i, 1);
                 }
+            }
+
+            // 2. Coins
+            for (let i = coins.length - 1; i >= 0; i--) {
+                let coin = coins[i];
+                coin.rotation.y += 0.05; // Spin animation
+                let coinBox = new THREE.Box3().setFromObject(coin);
                 
-                // Remove obstacles that are behind the fire wall to save memory
-                if (obs.position.z > fireWall.position.z) {
-                    scene.remove(obs);
-                    obstacles.splice(i, 1);
+                if (playerBox.intersectsBox(coinBox)) {
+                    bonusScore += 50;
+                    scene.remove(coin);
+                    coins.splice(i, 1);
+                } else if (coin.position.z > fireWall.position.z) {
+                    scene.remove(coin);
+                    coins.splice(i, 1);
                 }
             }
 
-            // Spawn new obstacles ahead
-            if (obstacles.length > 0) {
-                let lastObs = obstacles[obstacles.length - 1];
-                if (lastObs.position.z > player.position.z - 150) {
-                    spawnObstacle(lastObs.position.z - (10 + Math.random() * 15));
+            // 3. Powerups
+            for (let i = powerups.length - 1; i >= 0; i--) {
+                let pu = powerups[i];
+                pu.rotation.x += 0.05;
+                pu.rotation.y += 0.05;
+                let puBox = new THREE.Box3().setFromObject(pu);
+                
+                if (playerBox.intersectsBox(puBox)) {
+                    // Powerup Effect: Push fire wall back!
+                    fireWall.position.z += 20; 
+                    showPowerupText();
+                    scene.remove(pu);
+                    powerups.splice(i, 1);
+                } else if (pu.position.z > fireWall.position.z) {
+                    scene.remove(pu);
+                    powerups.splice(i, 1);
                 }
             }
 
-            // Check if fire wall caught player
-            // Fire wall thickness is 5, so front is at fireWall.position.z - 2.5
+            // --- Entity Spawning ---
+            // Combine all entities to check furthest Z
+            let furthestZ = player.position.z;
+            const allEntities = [...obstacles, ...coins, ...powerups];
+            if (allEntities.length > 0) {
+                allEntities.forEach(e => {
+                    if (e.position.z < furthestZ) furthestZ = e.position.z;
+                });
+            }
+
+            // Keep spawning ahead of player
+            if (furthestZ > player.position.z - 200) {
+                spawnEntity(furthestZ - (10 + Math.random() * 15));
+            }
+
+            // --- Game Over Check ---
             if (fireWall.position.z - 2.5 <= player.position.z) {
                 isGameOver = true;
                 gameOverElement.style.display = 'block';
             }
 
-            // Update Score (distance traveled)
-            score = Math.floor(-player.position.z);
+            // --- Scoring ---
+            baseScore = Math.floor(-player.position.z);
+            score = baseScore + bonusScore;
             scoreElement.innerText = `Score: ${score}`;
-
-            // Make fire visually menacing (wobble)
-            fireWall.scale.y = 1 + Math.sin(Date.now() * 0.01) * 0.1;
-            fireWall.scale.x = 1 + Math.cos(Date.now() * 0.01) * 0.05;
 
             renderer.render(scene, camera);
         }
