@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lava Bed Defense</title>
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #333;
+            color: white;
+            font-family: sans-serif;
+            flex-direction: column;
+        }
+        canvas {
+            background-color: #8B4513; /* Dirt background */
+            border: 4px solid #222;
+            box-shadow: 0 0 20px rgba(255, 69, 0, 0.5);
+        }
+        #ui {
+            margin-top: 10px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas" width="600" height="600"></canvas>
+    <div id="ui">
+        <h2>Lava Bed Defense</h2>
+        <p>Use <b>Arrow Keys / WASD</b> to move the Boy.</p>
+        <p>Press <b>Spacebar</b> to place a protective block.</p>
+        <p>Don't let the lava reach your bed!</p>
+        <h3 id="score">Score: 0</h3>
+        <h3 id="gameOver" style="display: none; color: #ff4444;">GAME OVER! Press R to Restart</h3>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreElement = document.getElementById('score');
+        const gameOverElement = document.getElementById('gameOver');
+
+        const TILE_SIZE = 30;
+        const COLS = canvas.width / TILE_SIZE;
+        const ROWS = canvas.height / TILE_SIZE;
+
+        let grid = [];
+        let boy = { x: 10, y: 10 };
+        let bed = { x: 10, y: 10, w: 2, h: 3 };
+        let coin = { x: -1, y: -1 };
+        let score = 0;
+        let isGameOver = false;
+        let lavaTimer = 0;
+        const LAVA_SPEED = 30; // Frames between lava spread
+
+        // 0 = empty, 1 = bed, 2 = lava, 3 = wall, 4 = boy
+
+        function initGame() {
+            grid = Array(COLS).fill().map(() => Array(ROWS).fill(0));
+            
+            // Place bed in center
+            bed.x = Math.floor(COLS / 2) - 1;
+            bed.y = Math.floor(ROWS / 2) - 1;
+            
+            for(let i = 0; i < bed.w; i++) {
+                for(let j = 0; j < bed.h; j++) {
+                    grid[bed.x + i][bed.y + j] = 1;
+                }
+            }
+
+            // Place boy near bed
+            boy.x = bed.x - 2;
+            boy.y = bed.y;
+
+            score = 0;
+            isGameOver = false;
+            lavaTimer = 0;
+            gameOverElement.style.display = 'none';
+            
+            spawnLava();
+            spawnCoin();
+            
+            updateScore();
+            gameLoop();
+        }
+
+        function spawnLava() {
+            // Spawn lava on edges
+            const edges = [
+                {x: 0, y: Math.floor(Math.random() * ROWS)},
+                {x: COLS-1, y: Math.floor(Math.random() * ROWS)},
+                {x: Math.floor(Math.random() * COLS), y: 0},
+                {x: Math.floor(Math.random() * COLS), y: ROWS-1}
+            ];
+            const start = edges[Math.floor(Math.random() * edges.length)];
+            grid[start.x][start.y] = 2;
+        }
+
+        function spawnCoin() {
+            let placed = false;
+            while (!placed) {
+                let cx = Math.floor(Math.random() * COLS);
+                let cy = Math.floor(Math.random() * ROWS);
+                if (grid[cx][cy] === 0) {
+                    coin.x = cx;
+                    coin.y = cy;
+                    placed = true;
+                }
+            }
+        }
+
+        function spreadLava() {
+            let newLava = [];
+            for (let x = 0; x < COLS; x++) {
+                for (let y = 0; y < ROWS; y++) {
+                    if (grid[x][y] === 2) {
+                        // Check neighbors
+                        const neighbors = [
+                            {dx: 1, dy: 0}, {dx: -1, dy: 0},
+                            {dx: 0, dy: 1}, {dx: 0, dy: -1}
+                        ];
+                        neighbors.forEach(n => {
+                            const nx = x + n.dx;
+                            const ny = y + n.dy;
+                            if (nx >= 0 && nx < COLS && ny >= 0 && ny < ROWS) {
+                                if (grid[nx][ny] === 0) {
+                                    newLava.push({x: nx, y: ny});
+                                } else if (grid[nx][ny] === 1) {
+                                    isGameOver = true;
+                                }
+                            }
+                        });
+                    }
+                }
+            }
+            
+            // Apply new lava (with some randomness so it doesn't just fill perfectly)
+            newLava.forEach(l => {
+                if(Math.random() > 0.4) { // 60% chance to spread to a specific tile
+                    grid[l.x][l.y] = 2;
+                    // If lava covers the coin, respawn coin
+                    if (l.x === coin.x && l.y === coin.y) {
+                        spawnCoin();
+                    }
+                }
+            });
+        }
+
+        function updateScore() {
+            scoreElement.innerText = `Score (Collect Gold!): ${score}`;
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Draw grid
+            for (let x = 0; x < COLS; x++) {
+                for (let y = 0; y < ROWS; y++) {
+                    if (grid[x][y] === 1) {
+                        ctx.fillStyle = '#ff69b4'; // Bed (pink)
+                        ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+                    } else if (grid[x][y] === 2) {
+                        ctx.fillStyle = '#ff4500'; // Lava (orange-red)
+                        ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+                        ctx.fillStyle = '#ffa500';
+                        ctx.fillRect(x * TILE_SIZE + 5, y * TILE_SIZE + 5, TILE_SIZE - 10, TILE_SIZE - 10);
+                    } else if (grid[x][y] === 3) {
+                        ctx.fillStyle = '#808080'; // Wall (grey)
+                        ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+                    }
+                }
+            }
+
+            // Draw Coin
+            if (coin.x !== -1) {
+                ctx.fillStyle = '#ffd700'; // Gold
+                ctx.beginPath();
+                ctx.arc(coin.x * TILE_SIZE + TILE_SIZE/2, coin.y * TILE_SIZE + TILE_SIZE/2, TILE_SIZE/3, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            // Draw Boy
+            ctx.fillStyle = '#4169e1'; // Boy (blue)
+            ctx.beginPath();
+            ctx.arc(boy.x * TILE_SIZE + TILE_SIZE/2, boy.y * TILE_SIZE + TILE_SIZE/2, TILE_SIZE/2 - 2, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        function gameLoop() {
+            if (isGameOver) {
+                draw();
+                gameOverElement.style.display = 'block';
+                return;
+            }
+
+            lavaTimer++;
+            if (lavaTimer >= LAVA_SPEED) {
+                spreadLava();
+                if (Math.random() < 0.2) spawnLava();
+                lavaTimer = 0;
+            }
+
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+
+        window.addEventListener('keydown', (e) => {
+            if(isGameOver && (e.key === 'r' || e.key === 'R')) {
+                initGame();
+                return;
+            }
+            if(isGameOver) return;
+
+            let nx = boy.x;
+            let ny = boy.y;
+
+            if (e.key === 'ArrowUp' || e.key === 'w') ny--;
+            if (e.key === 'ArrowDown' || e.key === 's') ny++;
+            if (e.key === 'ArrowLeft' || e.key === 'a') nx--;
+            if (e.key === 'ArrowRight' || e.key === 'd') nx++;
+
+            // Move boy if target is valid and empty
+            if (nx >= 0 && nx < COLS && ny >= 0 && ny < ROWS) {
+                if (grid[nx][ny] === 0 || grid[nx][ny] === 2 || grid[nx][ny] === 1 || grid[nx][ny] === 3) {
+                    
+                    if (grid[nx][ny] === 3) return; // Can't walk through walls
+                    
+                    boy.x = nx;
+                    boy.y = ny;
+
+                    if(grid[nx][ny] === 2) {
+                        isGameOver = true;
+                    }
+                    
+                    if (boy.x === coin.x && boy.y === coin.y) {
+                        score += 10;
+                        updateScore();
+                        spawnCoin();
+                    }
+                }
+            }
+
+            // Place wall
+            if (e.key === ' ') {
+                if (grid[boy.x][boy.y] === 0) {
+                    grid[boy.x][boy.y] = 3; 
+                }
+            }
+        });
+
+        initGame();
+    </script>
+</body>
+</html>
