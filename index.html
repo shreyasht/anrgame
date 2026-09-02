@@ -299,8 +299,9 @@
                 let obsBox = new THREE.Box3().setFromObject(obs);
                 
                 if (playerBox.intersectsBox(obsBox)) {
-                    // Hit obstacle! Bounce player back
-                    player.position.z += 3; 
+                    // Hit obstacle! Instant game over
+                    isGameOver = true;
+                    gameOverElement.style.display = 'block';
                     scene.remove(obs);
                     obstacles.splice(i, 1);
                 } else if (obs.position.z > fireWall.position.z) {
