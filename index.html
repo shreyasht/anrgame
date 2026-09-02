@@ -105,6 +105,8 @@
         let obstacles = [];
         let coins = [];
         let powerups = [];
+        let spaceships = [];
+        let lasers = [];
         
         let score = 0;
         let baseScore = 0; // Score from distance
@@ -265,6 +267,8 @@
             clearEntities(obstacles);
             clearEntities(coins);
             clearEntities(powerups);
+            clearEntities(spaceships);
+            clearEntities(lasers);
             
             level = 1;
             nextLevelScore = 500;
@@ -287,10 +291,10 @@
         }
 
         function spawnEntity(zPos) {
-            const rand = Math.random();
+            const r = Math.random();
             const xPos = (Math.random() - 0.5) * 20;
 
-            if (rand < obstacleProbability) {
+            if (r < obstacleProbability) {
                 // Obstacle (Fire Pillars)
                 let numBlocks = 1;
                 if (level > 1) {
@@ -313,7 +317,24 @@
                 obs.position.set(xPos, height/2, zPos);
                 scene.add(obs);
                 obstacles.push(obs);
-            } else if (rand < 0.95) {
+            } else if (r < obstacleProbability + 0.05) {
+                // Spaceship
+                let shipGroup = new THREE.Group();
+                let saucerGeo = new THREE.CylinderGeometry(1.5, 0.5, 0.5, 16);
+                let saucerMat = new THREE.MeshStandardMaterial({ color: 0x888888, metalness: 0.8 });
+                let saucer = new THREE.Mesh(saucerGeo, saucerMat);
+                shipGroup.add(saucer);
+                
+                let domeGeo = new THREE.SphereGeometry(0.8, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2);
+                let domeMat = new THREE.MeshStandardMaterial({ color: 0x00ff00, emissive: 0x004400, transparent: true, opacity: 0.8 });
+                let dome = new THREE.Mesh(domeGeo, domeMat);
+                dome.position.y = 0.25;
+                shipGroup.add(dome);
+                
+                shipGroup.position.set(xPos, 8 + Math.random() * 4, zPos);
+                scene.add(shipGroup);
+                spaceships.push(shipGroup);
+            } else if (r < 0.95) {
                 // Coin (Golden Ring)
                 const geo = new THREE.TorusGeometry(0.5, 0.15, 8, 16);
                 const mat = new THREE.MeshStandardMaterial({ color: 0xffd700, metalness: 1, roughness: 0.2 });
@@ -484,9 +505,49 @@
                 }
             }
 
+            // 4. Spaceships
+            for (let i = spaceships.length - 1; i >= 0; i--) {
+                let ship = spaceships[i];
+                ship.rotation.y += 0.05;
+                
+                // Shoot a laser randomly if the player is somewhat close
+                if (Math.random() < 0.03 && ship.position.z < player.position.z - 15) {
+                    let laserGeo = new THREE.CylinderGeometry(0.2, 0.2, 1.5, 8);
+                    let laserMat = new THREE.MeshBasicMaterial({color: 0xff00ff});
+                    let laser = new THREE.Mesh(laserGeo, laserMat);
+                    laser.position.copy(ship.position);
+                    laser.position.y -= 1; 
+                    scene.add(laser);
+                    lasers.push(laser);
+                }
+
+                if (ship.position.z > fireWall.position.z) {
+                    scene.remove(ship);
+                    spaceships.splice(i, 1);
+                }
+            }
+
+            // 5. Lasers
+            for (let i = lasers.length - 1; i >= 0; i--) {
+                let laser = lasers[i];
+                laser.position.y -= 0.6; // fall down
+                
+                let laserBox = new THREE.Box3().setFromObject(laser);
+                // The laser is thin, but give it a bit of forgiveness
+                if (playerBox.intersectsBox(laserBox)) {
+                    isGameOver = true;
+                    gameOverElement.style.display = 'flex';
+                    scene.remove(laser);
+                    lasers.splice(i, 1);
+                } else if (laser.position.y < -1 || laser.position.z > fireWall.position.z) {
+                    scene.remove(laser);
+                    lasers.splice(i, 1);
+                }
+            }
+
             // --- Entity Spawning ---
             let furthestZ = player.position.z;
-            const allEntities = [...obstacles, ...coins, ...powerups];
+            const allEntities = [...obstacles, ...coins, ...powerups, ...spaceships];
             if (allEntities.length > 0) {
                 allEntities.forEach(e => {
                     if (e.position.z < furthestZ) furthestZ = e.position.z;
