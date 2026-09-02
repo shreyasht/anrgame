@@ -57,8 +57,9 @@
         <p class="instructions"><b>Left / Right (A/D)</b> to dodge. <b>Space / Up (W)</b> to jump.</p>
         <p class="instructions">Grab <b>Gold Rings</b> for points. <b>Blue Crystals</b> are power-ups!</p>
         <h3 id="score">Score: 0</h3>
+        <h3 id="levelUI">Level: 1</h3>
         <h3 id="powerupsUI">Power-ups: 0 <span style="font-size:0.6em">(Press Shift to Use)</span></h3>
-        <div id="powerupText">FIRE PUSHED BACK!</div>
+        <div id="powerupText">LEVEL UP!</div>
     </div>
     
     <div id="gameOverOverlay">
@@ -69,6 +70,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script>
         const scoreElement = document.getElementById('score');
+        const levelUIElement = document.getElementById('levelUI');
         const powerupsUIElement = document.getElementById('powerupsUI');
         const gameOverElement = document.getElementById('gameOverOverlay');
         const powerupTextElement = document.getElementById('powerupText');
@@ -84,6 +86,13 @@
         let bonusScore = 0; // Score from coins
         let powerupCount = 0; // Inventory
         let isGameOver = false;
+
+        // Level System
+        let level = 1;
+        let nextLevelScore = 500;
+        let obstacleProbability = 0.6;
+        let spawnDistanceMin = 15;
+        let spawnDistanceMax = 20;
         
         // Speeds
         const BASE_SPEED = 0.4;
@@ -100,10 +109,10 @@
 
         function updateUI() {
             scoreElement.innerText = `Score: ${score}`;
+            levelUIElement.innerText = `Level: ${level}`;
             powerupsUIElement.innerHTML = `Power-ups: ${powerupCount} <span style="font-size:0.6em">(Press Shift to Use)</span>`;
         }
 
-        // Helper to create a better player model
         function createPlayerModel() {
             let group = new THREE.Group();
             
@@ -178,7 +187,7 @@
             fireLight.name = "fireLight";
             scene.add(fireLight);
 
-            // Grid Floor for better 3D perspective
+            // Grid Floor
             const floorGeo = new THREE.PlaneGeometry(30, 10000);
             const floorMat = new THREE.MeshLambertMaterial({ color: 0x222222 });
             floor = new THREE.Mesh(floorGeo, floorMat);
@@ -186,7 +195,7 @@
             scene.add(floor);
             
             const gridHelper = new THREE.GridHelper(30, 30, 0x444444, 0x444444);
-            gridHelper.position.y = 0.01; // Slightly above floor
+            gridHelper.position.y = 0.01; 
             scene.add(gridHelper);
 
             // Player
@@ -232,6 +241,12 @@
             clearEntities(coins);
             clearEntities(powerups);
             
+            level = 1;
+            nextLevelScore = 500;
+            obstacleProbability = 0.6;
+            spawnDistanceMin = 15;
+            spawnDistanceMax = 20;
+            
             for(let i=0; i<20; i++) {
                 spawnEntity(-20 - i*15);
             }
@@ -250,7 +265,7 @@
             const rand = Math.random();
             const xPos = (Math.random() - 0.5) * 20;
 
-            if (rand < 0.7) {
+            if (rand < obstacleProbability) {
                 // Obstacle (Boxes)
                 const size = 1 + Math.random();
                 const geo = new THREE.BoxGeometry(size, size, size);
@@ -284,7 +299,9 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
         }
 
-        function showPowerupText() {
+        function showScreenText(msg, color) {
+            powerupTextElement.innerText = msg;
+            powerupTextElement.style.color = color;
             powerupTextElement.style.display = 'block';
             setTimeout(() => {
                 powerupTextElement.style.display = 'none';
@@ -306,7 +323,7 @@
             if (e.key === 'Shift' && powerupCount > 0 && !isGameOver) {
                 powerupCount--;
                 fireWall.position.z += 20; 
-                showPowerupText();
+                showScreenText("FIRE PUSHED BACK!", "#00ffff");
                 updateUI();
             }
 
@@ -328,7 +345,7 @@
 
             // --- Movement & Physics ---
             player.position.z -= playerSpeed;
-            playerSpeed += 0.0001; // Accelerate over time
+            playerSpeed += 0.0001; 
             fireSpeed = playerSpeed;
 
             // Lateral Movement
@@ -360,11 +377,11 @@
 
             // Camera Tracking
             camera.position.x = player.position.x * 0.5;
-            camera.position.y = 4 + (player.position.y - 0.5) * 0.5; // Slight up/down tracking
+            camera.position.y = 4 + (player.position.y - 0.5) * 0.5; 
             camera.position.z = player.position.z + 8;
             camera.lookAt(player.position.x, 1, player.position.z - 10);
             
-            // Move Grid Helper to simulate endless floor
+            // Move Grid Helper
             scene.children.forEach(c => {
                 if(c.type === "GridHelper") {
                     c.position.z = player.position.z;
@@ -373,7 +390,7 @@
 
             // --- Collision Detection ---
             const playerBox = new THREE.Box3().setFromObject(player);
-            playerBox.expandByScalar(-0.15); // Forgiveness buffer
+            playerBox.expandByScalar(-0.15); 
 
             // 1. Obstacles
             for (let i = obstacles.length - 1; i >= 0; i--) {
@@ -381,7 +398,6 @@
                 let obsBox = new THREE.Box3().setFromObject(obs);
                 
                 if (playerBox.intersectsBox(obsBox)) {
-                    // Hit obstacle! Instant game over
                     isGameOver = true;
                     gameOverElement.style.display = 'flex';
                     scene.remove(obs);
@@ -395,7 +411,7 @@
             // 2. Coins
             for (let i = coins.length - 1; i >= 0; i--) {
                 let coin = coins[i];
-                coin.rotation.y += 0.05; // Spin animation
+                coin.rotation.y += 0.05; 
                 let coinBox = new THREE.Box3().setFromObject(coin);
                 
                 if (playerBox.intersectsBox(coinBox)) {
@@ -416,7 +432,6 @@
                 let puBox = new THREE.Box3().setFromObject(pu);
                 
                 if (playerBox.intersectsBox(puBox)) {
-                    // Pick up powerup
                     powerupCount++;
                     scene.remove(pu);
                     powerups.splice(i, 1);
@@ -436,7 +451,7 @@
             }
 
             if (furthestZ > player.position.z - 200) {
-                spawnEntity(furthestZ - (10 + Math.random() * 15));
+                spawnEntity(furthestZ - (spawnDistanceMin + Math.random() * (spawnDistanceMax - spawnDistanceMin)));
             }
 
             // --- Game Over Check ---
@@ -445,11 +460,27 @@
                 gameOverElement.style.display = 'flex';
             }
 
-            // --- Scoring ---
+            // --- Scoring & Leveling ---
             baseScore = Math.floor(-player.position.z);
             score = baseScore + bonusScore;
+            
+            // Level up logic
+            if (score >= nextLevelScore) {
+                level++;
+                nextLevelScore += 500;
+                
+                // Increase difficulty
+                obstacleProbability = Math.min(0.85, obstacleProbability + 0.05); // More blocks
+                spawnDistanceMin = Math.max(5, spawnDistanceMin - 2); // Blocks spawn closer together
+                spawnDistanceMax = Math.max(10, spawnDistanceMax - 2);
+                
+                // Speed bump
+                playerSpeed += 0.05;
+                
+                showScreenText(`LEVEL ${level}!`, "#ffaa00");
+            }
+            
             updateUI();
-
             renderer.render(scene, camera);
         }
 
