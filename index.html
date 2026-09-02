@@ -2,341 +2,243 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Lava Bed Defense</title>
+    <title>3D Fire Escape</title>
     <style>
-        body {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            margin: 0;
-            background-color: #333;
-            color: white;
-            font-family: sans-serif;
-            flex-direction: column;
-        }
-        canvas {
-            background-color: #8B4513; /* Dirt background */
-            border: 4px solid #222;
-            box-shadow: 0 0 20px rgba(255, 69, 0, 0.5);
-        }
-        #ui {
-            margin-top: 10px;
-            text-align: center;
-        }
+        body { margin: 0; overflow: hidden; background-color: #222; color: white; font-family: sans-serif; }
+        #ui { position: absolute; top: 20px; left: 20px; z-index: 100; text-shadow: 2px 2px 4px #000; }
+        #gameOver { display: none; color: #ff4500; font-size: 3em; font-weight: bold; margin-top: 20px; }
+        h2 { margin: 0 0 10px 0; color: #ffaa00; }
     </style>
 </head>
 <body>
-    <canvas id="gameCanvas" width="600" height="600"></canvas>
     <div id="ui">
-        <h2>Lava Bed Defense</h2>
-        <p>Use <b>Arrow Keys / WASD</b> to move the Boy.</p>
-        <p>Press <b>Spacebar</b> to place a protective block.</p>
-        <p>Don't let the lava reach your bed!</p>
+        <h2>3D Fire Escape</h2>
+        <p>Use <b>Left / Right Arrows</b> or <b>A / D</b> to dodge obstacles.</p>
+        <p>Hitting an obstacle slows you down. Don't let the fire wall catch you!</p>
         <h3 id="score">Score: 0</h3>
-        <h3 id="gameOver" style="display: none; color: #ff4444;">GAME OVER! Press R to Restart</h3>
+        <div id="gameOver">GAME OVER!<br><span style="font-size: 0.5em; color: white;">Press R to Restart</span></div>
     </div>
-
+    
+    <!-- Load Three.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script>
-        const canvas = document.getElementById('gameCanvas');
-        const ctx = canvas.getContext('2d');
         const scoreElement = document.getElementById('score');
         const gameOverElement = document.getElementById('gameOver');
 
-        const TILE_SIZE = 30;
-        const COLS = canvas.width / TILE_SIZE;
-        const ROWS = canvas.height / TILE_SIZE;
-
-        let grid = [];
-        let boy = { x: 10, y: 10 };
-        let bed = { x: 10, y: 10, w: 2, h: 3 };
-        let coin = { x: -1, y: -1 };
-        let slimes = [];
+        let scene, camera, renderer;
+        let player, fireWall, floor;
+        let obstacles = [];
+        
         let score = 0;
         let isGameOver = false;
         
-        let lavaTimer = 0;
-        const LAVA_SPEED = 30; // Frames between lava spread
+        // Speeds
+        const BASE_SPEED = 0.4;
+        let playerSpeed = BASE_SPEED;
+        let fireSpeed = BASE_SPEED; 
         
-        let slimeMoveTimer = 0;
-        const SLIME_SPEED = 40; // Frames between slime movement
-        
-        let slimeSpawnTimer = 0;
-        const SLIME_SPAWN_RATE = 150; // Frames between slime spawns
+        let keys = { left: false, right: false };
 
-        // 0 = empty, 1 = bed, 2 = lava, 3 = wall
+        function init() {
+            // Setup scene
+            scene = new THREE.Scene();
+            scene.fog = new THREE.Fog(0x221111, 20, 100);
 
-        function initGame() {
-            grid = Array(COLS).fill().map(() => Array(ROWS).fill(0));
-            slimes = [];
+            // Setup camera
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+
+            // Setup renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setClearColor(0x221111);
+            document.body.appendChild(renderer.domElement);
+
+            // Lighting
+            const ambientLight = new THREE.AmbientLight(0x404040); // soft white light
+            scene.add(ambientLight);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(0, 20, 10);
+            scene.add(directionalLight);
             
-            // Place bed in center
-            bed.x = Math.floor(COLS / 2) - 1;
-            bed.y = Math.floor(ROWS / 2) - 1;
+            // Fire Light
+            const fireLight = new THREE.PointLight(0xff4500, 2, 50);
+            scene.add(fireLight);
+
+            // Floor
+            const floorGeo = new THREE.PlaneGeometry(30, 10000);
+            const floorMat = new THREE.MeshLambertMaterial({ color: 0x333333 });
+            floor = new THREE.Mesh(floorGeo, floorMat);
+            floor.rotation.x = -Math.PI / 2;
+            floor.position.y = 0;
+            scene.add(floor);
+
+            // Player (Blue Boy)
+            const playerGeo = new THREE.BoxGeometry(1, 1, 1);
+            const playerMat = new THREE.MeshLambertMaterial({ color: 0x4169e1 });
+            player = new THREE.Mesh(playerGeo, playerMat);
+            player.position.set(0, 0.5, 0);
+            scene.add(player);
+
+            // Fire Wall (Behind player)
+            const fireGeo = new THREE.BoxGeometry(30, 10, 5);
+            const fireMat = new THREE.MeshBasicMaterial({ color: 0xff4500 });
+            fireWall = new THREE.Mesh(fireGeo, fireMat);
+            fireWall.position.set(0, 5, 15); // Starts 15 units behind
+            scene.add(fireWall);
             
-            for(let i = 0; i < bed.w; i++) {
-                for(let j = 0; j < bed.h; j++) {
-                    grid[bed.x + i][bed.y + j] = 1;
-                }
+            fireLight.position.copy(fireWall.position);
+
+            // Initial obstacles
+            for(let i=0; i<20; i++) {
+                spawnObstacle(-20 - i*10);
             }
 
-            // Place boy near bed
-            boy.x = bed.x - 2;
-            boy.y = bed.y;
+            // Window resize handler
+            window.addEventListener('resize', onWindowResize, false);
+        }
 
+        function resetGame() {
+            player.position.set(0, 0.5, 0);
+            fireWall.position.set(0, 5, 15);
+            
+            // Clear obstacles
+            for(let obs of obstacles) {
+                scene.remove(obs);
+            }
+            obstacles = [];
+            
+            for(let i=0; i<20; i++) {
+                spawnObstacle(-20 - i*10);
+            }
+            
             score = 0;
             isGameOver = false;
-            lavaTimer = 0;
-            slimeMoveTimer = 0;
-            slimeSpawnTimer = 0;
+            playerSpeed = BASE_SPEED;
             gameOverElement.style.display = 'none';
-            
-            spawnLava();
-            spawnCoin();
-            
-            updateScore();
-            gameLoop();
         }
 
-        function spawnLava() {
-            const edges = [
-                {x: 0, y: Math.floor(Math.random() * ROWS)},
-                {x: COLS-1, y: Math.floor(Math.random() * ROWS)},
-                {x: Math.floor(Math.random() * COLS), y: 0},
-                {x: Math.floor(Math.random() * COLS), y: ROWS-1}
-            ];
-            const start = edges[Math.floor(Math.random() * edges.length)];
-            grid[start.x][start.y] = 2;
+        function spawnObstacle(zPos) {
+            const size = 1 + Math.random() * 2;
+            const geo = new THREE.BoxGeometry(size, size, size);
+            const mat = new THREE.MeshLambertMaterial({ color: 0x888888 });
+            const obs = new THREE.Mesh(geo, mat);
+            // Random X between -10 and 10
+            obs.position.set((Math.random() - 0.5) * 20, size/2, zPos);
+            scene.add(obs);
+            obstacles.push(obs);
         }
 
-        function spawnCoin() {
-            let placed = false;
-            while (!placed) {
-                let cx = Math.floor(Math.random() * COLS);
-                let cy = Math.floor(Math.random() * ROWS);
-                if (grid[cx][cy] === 0) {
-                    coin.x = cx;
-                    coin.y = cy;
-                    placed = true;
-                }
-            }
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
         }
 
-        function spawnSlime() {
-            // Find all lava tiles
-            let lavaTiles = [];
-            for (let x = 0; x < COLS; x++) {
-                for (let y = 0; y < ROWS; y++) {
-                    if (grid[x][y] === 2) lavaTiles.push({x, y});
-                }
-            }
-            if (lavaTiles.length > 0) {
-                let spawnPt = lavaTiles[Math.floor(Math.random() * lavaTiles.length)];
-                slimes.push({x: spawnPt.x, y: spawnPt.y});
-            }
-        }
-
-        function spreadLava() {
-            let newLava = [];
-            for (let x = 0; x < COLS; x++) {
-                for (let y = 0; y < ROWS; y++) {
-                    if (grid[x][y] === 2) {
-                        const neighbors = [
-                            {dx: 1, dy: 0}, {dx: -1, dy: 0},
-                            {dx: 0, dy: 1}, {dx: 0, dy: -1}
-                        ];
-                        neighbors.forEach(n => {
-                            const nx = x + n.dx;
-                            const ny = y + n.dy;
-                            if (nx >= 0 && nx < COLS && ny >= 0 && ny < ROWS) {
-                                if (grid[nx][ny] === 0) {
-                                    newLava.push({x: nx, y: ny});
-                                } else if (grid[nx][ny] === 1) {
-                                    isGameOver = true;
-                                }
-                            }
-                        });
-                    }
-                }
-            }
-            
-            newLava.forEach(l => {
-                if(Math.random() > 0.4) { 
-                    grid[l.x][l.y] = 2;
-                    if (l.x === coin.x && l.y === coin.y) {
-                        spawnCoin();
-                    }
-                }
-            });
-        }
-
-        function moveSlimes() {
-            for (let s of slimes) {
-                // Move towards boy
-                let dx = boy.x - s.x;
-                let dy = boy.y - s.y;
-                
-                let nx = s.x;
-                let ny = s.y;
-
-                if (Math.abs(dx) > Math.abs(dy)) {
-                    nx += Math.sign(dx);
-                } else {
-                    ny += Math.sign(dy);
-                }
-
-                // If path is blocked, try the other direction
-                if (nx < 0 || nx >= COLS || ny < 0 || ny >= ROWS || grid[nx][ny] === 1 || grid[nx][ny] === 3) {
-                    nx = s.x;
-                    ny = s.y;
-                    if (Math.abs(dx) <= Math.abs(dy) && dx !== 0) {
-                        nx += Math.sign(dx);
-                    } else if (dy !== 0) {
-                        ny += Math.sign(dy);
-                    }
-                }
-
-                if (nx >= 0 && nx < COLS && ny >= 0 && ny < ROWS && grid[nx][ny] !== 1 && grid[nx][ny] !== 3) {
-                    s.x = nx;
-                    s.y = ny;
-                }
-
-                // Check collision with boy
-                if (s.x === boy.x && s.y === boy.y) {
-                    isGameOver = true;
-                }
-            }
-        }
-
-        function updateScore() {
-            scoreElement.innerText = `Score (Collect Gold!): ${score}`;
-        }
-
-        function drawEmoji(emoji, x, y, size) {
-            ctx.font = `${size}px sans-serif`;
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText(emoji, x * TILE_SIZE + TILE_SIZE/2, y * TILE_SIZE + TILE_SIZE/2);
-        }
-
-        function draw() {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-            // Draw grid and objects
-            for (let x = 0; x < COLS; x++) {
-                for (let y = 0; y < ROWS; y++) {
-                    if (grid[x][y] === 1) {
-                        // Bed 
-                        ctx.fillStyle = '#ff69b4';
-                        ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
-                    } else if (grid[x][y] === 2) {
-                        // Lava
-                        drawEmoji('🔥', x, y, 22);
-                    } else if (grid[x][y] === 3) {
-                        // Wall
-                        ctx.fillStyle = '#808080';
-                        ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
-                        drawEmoji('🧱', x, y, 20);
-                    }
-                }
-            }
-            
-            // Draw one big bed emoji over the bed area
-            ctx.font = '50px sans-serif';
-            ctx.fillText('🛏️', bed.x * TILE_SIZE + TILE_SIZE, bed.y * TILE_SIZE + TILE_SIZE * 1.5);
-
-            // Draw Coin
-            if (coin.x !== -1) {
-                drawEmoji('🪙', coin.x, coin.y, 24);
-            }
-
-            // Draw Slimes
-            for (let s of slimes) {
-                drawEmoji('👺', s.x, s.y, 24);
-            }
-
-            // Draw Boy
-            drawEmoji('👦', boy.x, boy.y, 26);
-        }
-
-        function gameLoop() {
-            if (isGameOver) {
-                draw();
-                gameOverElement.style.display = 'block';
-                return;
-            }
-
-            lavaTimer++;
-            if (lavaTimer >= LAVA_SPEED) {
-                spreadLava();
-                if (Math.random() < 0.2) spawnLava();
-                lavaTimer = 0;
-            }
-            
-            slimeSpawnTimer++;
-            if (slimeSpawnTimer >= SLIME_SPAWN_RATE) {
-                spawnSlime();
-                slimeSpawnTimer = 0;
-            }
-
-            slimeMoveTimer++;
-            if (slimeMoveTimer >= SLIME_SPEED) {
-                moveSlimes();
-                slimeMoveTimer = 0;
-            }
-
-            draw();
-            requestAnimationFrame(gameLoop);
-        }
-
+        // Input handling
         window.addEventListener('keydown', (e) => {
-            if(isGameOver && (e.key === 'r' || e.key === 'R')) {
-                initGame();
-                return;
-            }
-            if(isGameOver) return;
-
-            let nx = boy.x;
-            let ny = boy.y;
-
-            if (e.key === 'ArrowUp' || e.key === 'w') ny--;
-            if (e.key === 'ArrowDown' || e.key === 's') ny++;
-            if (e.key === 'ArrowLeft' || e.key === 'a') nx--;
-            if (e.key === 'ArrowRight' || e.key === 'd') nx++;
-
-            // Move boy
-            if (nx >= 0 && nx < COLS && ny >= 0 && ny < ROWS) {
-                if (grid[nx][ny] !== 3) { // Can't walk through walls
-                    boy.x = nx;
-                    boy.y = ny;
-
-                    if(grid[nx][ny] === 2) {
-                        isGameOver = true;
-                    }
-                    
-                    // Check slime collision immediately on move
-                    for(let s of slimes) {
-                        if (s.x === boy.x && s.y === boy.y) isGameOver = true;
-                    }
-                    
-                    if (boy.x === coin.x && boy.y === coin.y) {
-                        score += 10;
-                        updateScore();
-                        spawnCoin();
-                    }
-                }
-            }
-
-            // Place wall
-            if (e.key === ' ') {
-                if (grid[boy.x][boy.y] === 0) {
-                    grid[boy.x][boy.y] = 3; 
-                }
-            }
+            if (e.key === 'a' || e.key === 'ArrowLeft') keys.left = true;
+            if (e.key === 'd' || e.key === 'ArrowRight') keys.right = true;
+            if ((e.key === 'r' || e.key === 'R') && isGameOver) resetGame();
         });
 
-        initGame();
+        window.addEventListener('keyup', (e) => {
+            if (e.key === 'a' || e.key === 'ArrowLeft') keys.left = false;
+            if (e.key === 'd' || e.key === 'ArrowRight') keys.right = false;
+        });
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            if (isGameOver) {
+                renderer.render(scene, camera);
+                return;
+            }
+
+            // Move player forward (-Z direction)
+            player.position.z -= playerSpeed;
+            
+            // Speed slowly increases
+            playerSpeed += 0.0001;
+            fireSpeed = playerSpeed; // Fire keeps pace
+
+            // Move fire wall
+            fireWall.position.z -= fireSpeed;
+            
+            // Light follows fire wall
+            scene.children.forEach(c => {
+                if(c.type === "PointLight") {
+                    c.position.z = fireWall.position.z - 3;
+                }
+            });
+
+            // Player lateral movement
+            if (keys.left) player.position.x -= 0.3;
+            if (keys.right) player.position.x += 0.3;
+            
+            // Clamp player X to floor bounds
+            player.position.x = Math.max(-14, Math.min(14, player.position.x));
+
+            // Camera follows player
+            camera.position.x = player.position.x * 0.5; // Slight look-ahead pan
+            camera.position.y = 4;
+            camera.position.z = player.position.z + 8;
+            camera.lookAt(player.position.x, 0, player.position.z - 5);
+
+            // Collision Detection
+            const playerBox = new THREE.Box3().setFromObject(player);
+            // Shrink player hitbox slightly for forgiveness
+            playerBox.expandByScalar(-0.2); 
+            
+            for (let i = obstacles.length - 1; i >= 0; i--) {
+                let obs = obstacles[i];
+                let obsBox = new THREE.Box3().setFromObject(obs);
+                
+                if (playerBox.intersectsBox(obsBox)) {
+                    // Hit obstacle! Bounce player back towards fire
+                    player.position.z += 3; 
+                    
+                    // Remove obstacle so we don't get stuck in it
+                    scene.remove(obs);
+                    obstacles.splice(i, 1);
+                    
+                    // Flash player red briefly (optional polish, skip for now)
+                }
+                
+                // Remove obstacles that are behind the fire wall to save memory
+                if (obs.position.z > fireWall.position.z) {
+                    scene.remove(obs);
+                    obstacles.splice(i, 1);
+                }
+            }
+
+            // Spawn new obstacles ahead
+            if (obstacles.length > 0) {
+                let lastObs = obstacles[obstacles.length - 1];
+                if (lastObs.position.z > player.position.z - 150) {
+                    spawnObstacle(lastObs.position.z - (10 + Math.random() * 15));
+                }
+            }
+
+            // Check if fire wall caught player
+            // Fire wall thickness is 5, so front is at fireWall.position.z - 2.5
+            if (fireWall.position.z - 2.5 <= player.position.z) {
+                isGameOver = true;
+                gameOverElement.style.display = 'block';
+            }
+
+            // Update Score (distance traveled)
+            score = Math.floor(-player.position.z);
+            scoreElement.innerText = `Score: ${score}`;
+
+            // Make fire visually menacing (wobble)
+            fireWall.scale.y = 1 + Math.sin(Date.now() * 0.01) * 0.1;
+            fireWall.scale.x = 1 + Math.cos(Date.now() * 0.01) * 0.05;
+
+            renderer.render(scene, camera);
+        }
+
+        init();
+        animate();
     </script>
 </body>
 </html>
