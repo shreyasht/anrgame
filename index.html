@@ -10,14 +10,16 @@
         h2 { margin: 0 0 5px 0; color: #ffaa00; }
         .instructions { font-size: 0.9em; margin: 5px 0; color: #ddd; }
         #powerupText { color: #00ffff; font-weight: bold; display: none; font-size: 1.5em; margin-top: 10px; }
+        h3 { margin: 5px 0; }
     </style>
 </head>
 <body>
     <div id="ui">
         <h2>3D Fire Escape</h2>
         <p class="instructions"><b>Left / Right (A/D)</b> to dodge. <b>Space / Up (W)</b> to jump.</p>
-        <p class="instructions">Grab <b>Gold Rings</b> for points. <b>Blue Crystals</b> push the fire back!</p>
+        <p class="instructions">Grab <b>Gold Rings</b> for points. <b>Blue Crystals</b> are power-ups!</p>
         <h3 id="score">Score: 0</h3>
+        <h3 id="powerupsUI">Power-ups: 0 <span style="font-size:0.6em">(Press Shift to Use)</span></h3>
         <div id="powerupText">FIRE PUSHED BACK!</div>
         <div id="gameOver">GAME OVER!<br><span style="font-size: 0.5em; color: white;">Press R to Restart</span></div>
     </div>
@@ -25,6 +27,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script>
         const scoreElement = document.getElementById('score');
+        const powerupsUIElement = document.getElementById('powerupsUI');
         const gameOverElement = document.getElementById('gameOver');
         const powerupTextElement = document.getElementById('powerupText');
 
@@ -37,6 +40,7 @@
         let score = 0;
         let baseScore = 0; // Score from distance
         let bonusScore = 0; // Score from coins
+        let powerupCount = 0; // Inventory
         let isGameOver = false;
         
         // Speeds
@@ -52,6 +56,11 @@
         
         let keys = { left: false, right: false };
 
+        function updateUI() {
+            scoreElement.innerText = `Score: ${score}`;
+            powerupsUIElement.innerHTML = `Power-ups: ${powerupCount} <span style="font-size:0.6em">(Press Shift to Use)</span>`;
+        }
+
         // Helper to create a better player model
         function createPlayerModel() {
             let group = new THREE.Group();
@@ -62,6 +71,13 @@
             let head = new THREE.Mesh(headGeo, headMat);
             head.position.y = 0.8;
             group.add(head);
+
+            // Hair
+            let hairGeo = new THREE.BoxGeometry(0.5, 0.25, 0.5);
+            let hairMat = new THREE.MeshLambertMaterial({color: 0x4a2e15}); // Dark brown hair
+            let hair = new THREE.Mesh(hairGeo, hairMat);
+            hair.position.y = 1.1; 
+            group.add(hair);
             
             // Body
             let bodyGeo = new THREE.BoxGeometry(0.6, 0.8, 0.4);
@@ -123,7 +139,6 @@
 
             // Fire Wall
             const fireGeo = new THREE.BoxGeometry(30, 10, 5);
-            // Add wireframe over it for cool effect
             const fireMat = new THREE.MeshBasicMaterial({ color: 0xff4500 });
             fireWall = new THREE.Mesh(fireGeo, fireMat);
             
@@ -141,6 +156,7 @@
             }
 
             window.addEventListener('resize', onWindowResize, false);
+            updateUI();
         }
 
         function clearEntities(arr) {
@@ -167,9 +183,11 @@
             baseScore = 0;
             bonusScore = 0;
             score = 0;
+            powerupCount = 0;
             isGameOver = false;
             playerSpeed = BASE_SPEED;
             gameOverElement.style.display = 'none';
+            updateUI();
         }
 
         function spawnEntity(zPos) {
@@ -227,6 +245,14 @@
                 playerVelocityY = JUMP_FORCE;
                 isJumping = true;
             }
+            
+            // Use Powerup
+            if (e.key === 'Shift' && powerupCount > 0 && !isGameOver) {
+                powerupCount--;
+                fireWall.position.z += 20; 
+                showPowerupText();
+                updateUI();
+            }
 
             if ((e.key === 'r' || e.key === 'R') && isGameOver) resetGame();
         });
@@ -282,7 +308,7 @@
             camera.position.z = player.position.z + 8;
             camera.lookAt(player.position.x, 1, player.position.z - 10);
             
-            // Move Grid Helper to simulate endless floor (keeps it centered)
+            // Move Grid Helper to simulate endless floor
             scene.children.forEach(c => {
                 if(c.type === "GridHelper") {
                     c.position.z = player.position.z;
@@ -334,9 +360,8 @@
                 let puBox = new THREE.Box3().setFromObject(pu);
                 
                 if (playerBox.intersectsBox(puBox)) {
-                    // Powerup Effect: Push fire wall back!
-                    fireWall.position.z += 20; 
-                    showPowerupText();
+                    // Pick up powerup
+                    powerupCount++;
                     scene.remove(pu);
                     powerups.splice(i, 1);
                 } else if (pu.position.z > fireWall.position.z) {
@@ -346,7 +371,6 @@
             }
 
             // --- Entity Spawning ---
-            // Combine all entities to check furthest Z
             let furthestZ = player.position.z;
             const allEntities = [...obstacles, ...coins, ...powerups];
             if (allEntities.length > 0) {
@@ -355,7 +379,6 @@
                 });
             }
 
-            // Keep spawning ahead of player
             if (furthestZ > player.position.z - 200) {
                 spawnEntity(furthestZ - (10 + Math.random() * 15));
             }
@@ -369,7 +392,7 @@
             // --- Scoring ---
             baseScore = Math.floor(-player.position.z);
             score = baseScore + bonusScore;
-            scoreElement.innerText = `Score: ${score}`;
+            updateUI();
 
             renderer.render(scene, camera);
         }
