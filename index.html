@@ -49,7 +49,6 @@
         const ROWS = canvas.height / TILE_SIZE;
 
         let grid = [];
-        let wallHealth = [];
         let boy = { x: 10, y: 10 };
         let bed = { x: 10, y: 10, w: 2, h: 3 };
         let coin = { x: -1, y: -1 };
@@ -70,7 +69,6 @@
 
         function initGame() {
             grid = Array(COLS).fill().map(() => Array(ROWS).fill(0));
-            wallHealth = Array(COLS).fill().map(() => Array(ROWS).fill(0));
             slimes = [];
             
             // Place bed in center
@@ -173,37 +171,6 @@
             });
         }
 
-        function damageWalls() {
-            for (let x = 0; x < COLS; x++) {
-                for (let y = 0; y < ROWS; y++) {
-                    if (grid[x][y] === 3) {
-                        let isTouchingLava = false;
-                        const neighbors = [
-                            {dx: 1, dy: 0}, {dx: -1, dy: 0},
-                            {dx: 0, dy: 1}, {dx: 0, dy: -1}
-                        ];
-                        for (let n of neighbors) {
-                            const nx = x + n.dx;
-                            const ny = y + n.dy;
-                            if (nx >= 0 && nx < COLS && ny >= 0 && ny < ROWS) {
-                                if (grid[nx][ny] === 2) {
-                                    isTouchingLava = true;
-                                    break;
-                                }
-                            }
-                        }
-                        
-                        if (isTouchingLava) {
-                            wallHealth[x][y] -= 0.5;
-                            if (wallHealth[x][y] <= 0) {
-                                grid[x][y] = 2; 
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
         function moveSlimes() {
             for (let s of slimes) {
                 // Move towards boy
@@ -268,9 +235,7 @@
                         drawEmoji('🔥', x, y, 22);
                     } else if (grid[x][y] === 3) {
                         // Wall
-                        let healthRatio = wallHealth[x][y] / 100;
-                        let meltColor = Math.floor(255 * (1 - healthRatio));
-                        ctx.fillStyle = `rgb(${128 + meltColor/2}, ${128 - meltColor/2}, ${128 - meltColor/2})`;
+                        ctx.fillStyle = '#808080';
                         ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
                         drawEmoji('🧱', x, y, 20);
                     }
@@ -321,8 +286,6 @@
                 slimeMoveTimer = 0;
             }
 
-            damageWalls();
-
             draw();
             requestAnimationFrame(gameLoop);
         }
@@ -369,7 +332,6 @@
             if (e.key === ' ') {
                 if (grid[boy.x][boy.y] === 0) {
                     grid[boy.x][boy.y] = 3; 
-                    wallHealth[boy.x][boy.y] = 100;
                 }
             }
         });
