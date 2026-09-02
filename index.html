@@ -53,16 +53,25 @@
         let boy = { x: 10, y: 10 };
         let bed = { x: 10, y: 10, w: 2, h: 3 };
         let coin = { x: -1, y: -1 };
+        let slimes = [];
         let score = 0;
         let isGameOver = false;
+        
         let lavaTimer = 0;
         const LAVA_SPEED = 30; // Frames between lava spread
+        
+        let slimeMoveTimer = 0;
+        const SLIME_SPEED = 40; // Frames between slime movement
+        
+        let slimeSpawnTimer = 0;
+        const SLIME_SPAWN_RATE = 150; // Frames between slime spawns
 
-        // 0 = empty, 1 = bed, 2 = lava, 3 = wall, 4 = boy
+        // 0 = empty, 1 = bed, 2 = lava, 3 = wall
 
         function initGame() {
             grid = Array(COLS).fill().map(() => Array(ROWS).fill(0));
             wallHealth = Array(COLS).fill().map(() => Array(ROWS).fill(0));
+            slimes = [];
             
             // Place bed in center
             bed.x = Math.floor(COLS / 2) - 1;
@@ -81,6 +90,8 @@
             score = 0;
             isGameOver = false;
             lavaTimer = 0;
+            slimeMoveTimer = 0;
+            slimeSpawnTimer = 0;
             gameOverElement.style.display = 'none';
             
             spawnLava();
@@ -91,7 +102,6 @@
         }
 
         function spawnLava() {
-            // Spawn lava on edges
             const edges = [
                 {x: 0, y: Math.floor(Math.random() * ROWS)},
                 {x: COLS-1, y: Math.floor(Math.random() * ROWS)},
@@ -115,12 +125,25 @@
             }
         }
 
+        function spawnSlime() {
+            // Find all lava tiles
+            let lavaTiles = [];
+            for (let x = 0; x < COLS; x++) {
+                for (let y = 0; y < ROWS; y++) {
+                    if (grid[x][y] === 2) lavaTiles.push({x, y});
+                }
+            }
+            if (lavaTiles.length > 0) {
+                let spawnPt = lavaTiles[Math.floor(Math.random() * lavaTiles.length)];
+                slimes.push({x: spawnPt.x, y: spawnPt.y});
+            }
+        }
+
         function spreadLava() {
             let newLava = [];
             for (let x = 0; x < COLS; x++) {
                 for (let y = 0; y < ROWS; y++) {
                     if (grid[x][y] === 2) {
-                        // Check neighbors
                         const neighbors = [
                             {dx: 1, dy: 0}, {dx: -1, dy: 0},
                             {dx: 0, dy: 1}, {dx: 0, dy: -1}
@@ -140,11 +163,9 @@
                 }
             }
             
-            // Apply new lava (with some randomness so it doesn't just fill perfectly)
             newLava.forEach(l => {
-                if(Math.random() > 0.4) { // 60% chance to spread to a specific tile
+                if(Math.random() > 0.4) { 
                     grid[l.x][l.y] = 2;
-                    // If lava covers the coin, respawn coin
                     if (l.x === coin.x && l.y === coin.y) {
                         spawnCoin();
                     }
@@ -173,12 +194,50 @@
                         }
                         
                         if (isTouchingLava) {
-                            wallHealth[x][y] -= 0.5; // Wall takes roughly 3-4 seconds to melt at 60fps
+                            wallHealth[x][y] -= 0.5;
                             if (wallHealth[x][y] <= 0) {
-                                grid[x][y] = 2; // Wall melts into lava!
+                                grid[x][y] = 2; 
                             }
                         }
                     }
+                }
+            }
+        }
+
+        function moveSlimes() {
+            for (let s of slimes) {
+                // Move towards boy
+                let dx = boy.x - s.x;
+                let dy = boy.y - s.y;
+                
+                let nx = s.x;
+                let ny = s.y;
+
+                if (Math.abs(dx) > Math.abs(dy)) {
+                    nx += Math.sign(dx);
+                } else {
+                    ny += Math.sign(dy);
+                }
+
+                // If path is blocked, try the other direction
+                if (nx < 0 || nx >= COLS || ny < 0 || ny >= ROWS || grid[nx][ny] === 1 || grid[nx][ny] === 3) {
+                    nx = s.x;
+                    ny = s.y;
+                    if (Math.abs(dx) <= Math.abs(dy) && dx !== 0) {
+                        nx += Math.sign(dx);
+                    } else if (dy !== 0) {
+                        ny += Math.sign(dy);
+                    }
+                }
+
+                if (nx >= 0 && nx < COLS && ny >= 0 && ny < ROWS && grid[nx][ny] !== 1 && grid[nx][ny] !== 3) {
+                    s.x = nx;
+                    s.y = ny;
+                }
+
+                // Check collision with boy
+                if (s.x === boy.x && s.y === boy.y) {
+                    isGameOver = true;
                 }
             }
         }
@@ -187,43 +246,53 @@
             scoreElement.innerText = `Score (Collect Gold!): ${score}`;
         }
 
+        function drawEmoji(emoji, x, y, size) {
+            ctx.font = `${size}px sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(emoji, x * TILE_SIZE + TILE_SIZE/2, y * TILE_SIZE + TILE_SIZE/2);
+        }
+
         function draw() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            // Draw grid
+            // Draw grid and objects
             for (let x = 0; x < COLS; x++) {
                 for (let y = 0; y < ROWS; y++) {
                     if (grid[x][y] === 1) {
-                        ctx.fillStyle = '#ff69b4'; // Bed (pink)
+                        // Bed 
+                        ctx.fillStyle = '#ff69b4';
                         ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
                     } else if (grid[x][y] === 2) {
-                        ctx.fillStyle = '#ff4500'; // Lava (orange-red)
-                        ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
-                        ctx.fillStyle = '#ffa500';
-                        ctx.fillRect(x * TILE_SIZE + 5, y * TILE_SIZE + 5, TILE_SIZE - 10, TILE_SIZE - 10);
+                        // Lava
+                        drawEmoji('🔥', x, y, 22);
                     } else if (grid[x][y] === 3) {
+                        // Wall
                         let healthRatio = wallHealth[x][y] / 100;
                         let meltColor = Math.floor(255 * (1 - healthRatio));
-                        // Shift from Grey (128,128,128) to Red (255, 69, 0)
                         ctx.fillStyle = `rgb(${128 + meltColor/2}, ${128 - meltColor/2}, ${128 - meltColor/2})`;
                         ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+                        drawEmoji('🧱', x, y, 20);
                     }
                 }
             }
+            
+            // Draw one big bed emoji over the bed area
+            ctx.font = '50px sans-serif';
+            ctx.fillText('🛏️', bed.x * TILE_SIZE + TILE_SIZE, bed.y * TILE_SIZE + TILE_SIZE * 1.5);
 
             // Draw Coin
             if (coin.x !== -1) {
-                ctx.fillStyle = '#ffd700'; // Gold
-                ctx.beginPath();
-                ctx.arc(coin.x * TILE_SIZE + TILE_SIZE/2, coin.y * TILE_SIZE + TILE_SIZE/2, TILE_SIZE/3, 0, Math.PI * 2);
-                ctx.fill();
+                drawEmoji('🪙', coin.x, coin.y, 24);
+            }
+
+            // Draw Slimes
+            for (let s of slimes) {
+                drawEmoji('👺', s.x, s.y, 24);
             }
 
             // Draw Boy
-            ctx.fillStyle = '#4169e1'; // Boy (blue)
-            ctx.beginPath();
-            ctx.arc(boy.x * TILE_SIZE + TILE_SIZE/2, boy.y * TILE_SIZE + TILE_SIZE/2, TILE_SIZE/2 - 2, 0, Math.PI * 2);
-            ctx.fill();
+            drawEmoji('👦', boy.x, boy.y, 26);
         }
 
         function gameLoop() {
@@ -238,6 +307,18 @@
                 spreadLava();
                 if (Math.random() < 0.2) spawnLava();
                 lavaTimer = 0;
+            }
+            
+            slimeSpawnTimer++;
+            if (slimeSpawnTimer >= SLIME_SPAWN_RATE) {
+                spawnSlime();
+                slimeSpawnTimer = 0;
+            }
+
+            slimeMoveTimer++;
+            if (slimeMoveTimer >= SLIME_SPEED) {
+                moveSlimes();
+                slimeMoveTimer = 0;
             }
 
             damageWalls();
@@ -261,17 +342,19 @@
             if (e.key === 'ArrowLeft' || e.key === 'a') nx--;
             if (e.key === 'ArrowRight' || e.key === 'd') nx++;
 
-            // Move boy if target is valid and empty
+            // Move boy
             if (nx >= 0 && nx < COLS && ny >= 0 && ny < ROWS) {
-                if (grid[nx][ny] === 0 || grid[nx][ny] === 2 || grid[nx][ny] === 1 || grid[nx][ny] === 3) {
-                    
-                    if (grid[nx][ny] === 3) return; // Can't walk through walls
-                    
+                if (grid[nx][ny] !== 3) { // Can't walk through walls
                     boy.x = nx;
                     boy.y = ny;
 
                     if(grid[nx][ny] === 2) {
                         isGameOver = true;
+                    }
+                    
+                    // Check slime collision immediately on move
+                    for(let s of slimes) {
+                        if (s.x === boy.x && s.y === boy.y) isGameOver = true;
                     }
                     
                     if (boy.x === coin.x && boy.y === coin.y) {
