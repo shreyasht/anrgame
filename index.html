@@ -72,12 +72,26 @@
             head.position.y = 0.8;
             group.add(head);
 
-            // Hair
-            let hairGeo = new THREE.BoxGeometry(0.5, 0.25, 0.5);
+            // Hair Material
             let hairMat = new THREE.MeshLambertMaterial({color: 0x4a2e15}); // Dark brown hair
-            let hair = new THREE.Mesh(hairGeo, hairMat);
-            hair.position.y = 1.1; 
-            group.add(hair);
+            
+            // Hair (Top)
+            let hairTopGeo = new THREE.BoxGeometry(0.85, 0.35, 0.85);
+            let hairTop = new THREE.Mesh(hairTopGeo, hairMat);
+            hairTop.position.y = 1.1; 
+            group.add(hairTop);
+
+            // Hair (Bangs/Front)
+            let hairFrontGeo = new THREE.BoxGeometry(0.85, 0.2, 0.3);
+            let hairFront = new THREE.Mesh(hairFrontGeo, hairMat);
+            hairFront.position.set(0, 0.95, -0.35); 
+            group.add(hairFront);
+            
+            // Hair (Back)
+            let hairBackGeo = new THREE.BoxGeometry(0.85, 0.4, 0.3);
+            let hairBack = new THREE.Mesh(hairBackGeo, hairMat);
+            hairBack.position.set(0, 0.9, 0.35); 
+            group.add(hairBack);
             
             // Body
             let bodyGeo = new THREE.BoxGeometry(0.6, 0.8, 0.4);
